@@ -6,12 +6,11 @@ from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from email.utils import formatdate
 import smtplib
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import numpy as np
 from scipy.signal import savgol_filter
 import io
-from datetime import datetime, timedelta  # Ensure timedelta is imported
 
 # Constants
 NOAA_URL = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
@@ -24,7 +23,7 @@ EMAIL_PASSWORD = 'tdxm jolt btqs wpeu'
 # Function to fetch tide data
 def fetch_tide_data():
     params = {
-        "station": "9414290",
+        "station": "9414863",
         "product": "predictions",
         "date": "today",
         "datum": "MLLW",
@@ -59,8 +58,8 @@ def fetch_7day_forecast():
     return forecast
 
 
-# Function to evaluate kayak conditions
-def evaluate_kayak_conditions(tide_times, temperature, wind_speed, weather_conditions):
+# Function to evaluate kayak conditions using tide data
+def evaluate_kayak_conditions(tide_times):
     now = datetime.now()
 
     ideal_morning_start = now.replace(hour=7, minute=0, second=0, microsecond=0)
@@ -79,17 +78,7 @@ def evaluate_kayak_conditions(tide_times, temperature, wind_speed, weather_condi
                 (ideal_evening_start - timedelta(hours=1) <= tide_time <= ideal_evening_end + timedelta(hours=1)):
             tide_status = 'GOOD'
 
-    # Check other conditions
-    weather_sunny = 'Partly Sunny' in weather_conditions or 'Sunny' in weather_conditions
-    temperature_valid = temperature > 60
-    wind_valid = wind_speed <= 3
-
-    if tide_status == 'GREAT' and weather_sunny and temperature_valid and wind_valid:
-        return 'GREAT'
-    elif tide_status == 'GOOD' and weather_sunny and temperature_valid and wind_valid:
-        return 'GOOD'
-    else:
-        return 'POOR'
+    return tide_status
 
 
 # Function to plot tide chart
@@ -128,12 +117,12 @@ def plot_tide_chart(tide_data):
     for idx in low_tide_labels:
         plt.plot(times[idx], heights[idx], 'go')
         plt.text(times[idx], heights[idx], f'Low Tide {low_tide_labels.index(idx) + 1}\n{heights[idx]:.2f} ft',
-                 color='green', ha='right')
+                 color='black', ha='right')
 
     for idx in high_tide_labels:
         plt.plot(times[idx], heights[idx], 'ro')
         plt.text(times[idx], heights[idx], f'High Tide {high_tide_labels.index(idx) + 1}\n{heights[idx]:.2f} ft',
-                 color='red', ha='left')
+                 color='black', ha='left')
 
     today_date = datetime.now().strftime('%Y-%m-%d')
     plt.title(f'Tide Predictions with Switches for {today_date}')
@@ -180,6 +169,16 @@ def main():
     img_stream = plot_tide_chart(tide_data)
     forecast = fetch_7day_forecast()
 
+    # Get today's weather details
+    today_forecast = forecast[0]
+    today_temperature = today_forecast['temperature']
+    today_wind_speed = today_forecast['wind_speed']
+    today_conditions = today_forecast['conditions']
+
+    # Evaluate kayak conditions using tide data
+    kayak_condition = evaluate_kayak_conditions(tide_times)
+
+    # Compile the forecast table
     forecast_html = '<h3>7-Day Forecast</h3><table border="1"><tr><th>Date</th><th>Temperature (°F)</th><th>Wind Speed (knots)</th><th>Conditions</th><th>Kayak Condition</th></tr>'
 
     for day in forecast:
@@ -187,9 +186,11 @@ def main():
         temperature = day['temperature']
         wind_speed = day['wind_speed']
         conditions = day['conditions']
-        kayak_condition = evaluate_kayak_conditions(tide_times, temperature, wind_speed, conditions)
 
-        forecast_html += f'<tr><td>{date}</td><td>{temperature}</td><td>{wind_speed}</td><td>{conditions}</td><td>{kayak_condition}</td></tr>'
+        # Evaluate kayak condition for each day based on tide data
+        kayak_condition_day = evaluate_kayak_conditions(tide_times)
+
+        forecast_html += f'<tr><td>{date}</td><td>{temperature}</td><td>{wind_speed}</td><td>{conditions}</td><td>{kayak_condition_day}</td></tr>'
 
     forecast_html += '</table>'
 
@@ -199,10 +200,10 @@ def main():
     <html>
     <body>
         <h2>Kayak Conditions for Today</h2>
-        <p>Temperature: {temperature}°F</p>
-        <p>Wind Speed: {wind_speed} knots</p>
-        <p>Weather Conditions: {conditions}</p>
-        <p>Today's Kayak Condition: {kayak_condition}</p>
+        <p>Tide-Based Kayak Condition: {kayak_condition}</p>
+        <p>Temperature: {today_temperature}°F</p>
+        <p>Wind Speed: {today_wind_speed} knots</p>
+        <p>Weather Conditions: {today_conditions}</p>
         <h3>Tide Chart</h3>
         <img src="cid:tide_chart" alt="Tide Chart" />
         {forecast_html}
